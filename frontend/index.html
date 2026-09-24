@@ -1,0 +1,770 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Road Safety & Accident Prevention System</title>
+
+    <!-- Shared project stylesheet -->
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <style>
+        /* Map Stage & Layer Positioning */
+        .map-stage {
+            position: relative;
+        }
+
+        /* Route Search Overlay */
+        .route-search-box {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            z-index: 1000;
+            display: flex;
+            gap: 8px;
+            max-width: 620px;
+        }
+
+        .route-search-input {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background: #fff;
+            outline: none;
+        }
+
+        .btn-find-route {
+            padding: 10px 16px;
+            border: 0;
+            border-radius: 6px;
+            cursor: pointer;
+            background-color: #2563eb;
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        /* Map Canvas */
+        #roadSafetyMap {
+            width: 100%;
+            height: 470px;
+        }
+
+        /* Map Controls & Overlays */
+        .map-controls {
+            position: absolute !important;
+            top: 85px !important;
+            right: 15px !important;
+            z-index: 1000 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 6px !important;
+        }
+
+        .map-controls button {
+            position: relative;
+            z-index: 1001;
+            width: 38px;
+            height: 38px;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .map-tabs {
+            position: relative;
+            top: -12px;
+            z-index: 1002;
+        }
+
+        .legend {
+            position: absolute !important;
+            left: 15px !important;
+            bottom: 15px !important;
+            z-index: 1000 !important;
+            background: rgba(255, 255, 255, 0.95) !important;
+            padding: 8px 10px !important;
+            border-radius: 8px !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18) !important;
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 8px 12px !important;
+        }
+
+        .current-location-btn {
+            position: absolute !important;
+            top: 85px !important;
+            right: 62px !important;
+            z-index: 1001 !important;
+            width: 38px !important;
+            height: 38px !important;
+            border: 0 !important;
+            border-radius: 6px !important;
+            background: #fff !important;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25) !important;
+            cursor: pointer !important;
+            font-size: 20px !important;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="app-shell">
+
+    <!-- =================================================
+         01. TOP HEADER
+         ================================================= -->
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-mark" aria-hidden="true">🛡</div>
+            <div>
+                <h1>Road Safety & Accident Prevention System</h1>
+                <p>Safer Roads, Brighter Tomorrows</p>
+            </div>
+        </div>
+
+        <div class="top-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="globalSearch" type="text" placeholder="Search location, route, or report..." aria-label="Search">
+            <kbd>Ctrl K</kbd>
+        </div>
+
+        <div class="top-actions">
+            <button type="button" class="icon-btn" title="Notifications" id="notificationBtn" aria-label="Notifications">
+                ♧
+                <span class="badge">3</span>
+            </button>
+
+            <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle Theme">
+                ☼ <span></span> ☾
+            </button>
+
+            <a class="auth-btn outline" href="pages/sign-in.html">Sign In</a>
+            <a class="auth-btn primary" href="pages/sign-up.html">Sign Up</a>
+        </div>
+    </header>
+
+    <!-- =================================================
+         02. SIDEBAR NAVIGATION
+         ================================================= -->
+    <aside class="sidebar">
+        <nav>
+            <button type="button" class="nav-item active" data-section="dashboard">
+                ⌂ <span>Dashboard</span>
+            </button>
+            <button type="button" class="nav-item" data-section="live-map">
+                ⌖ <span>Live Map</span> <b>›</b>
+            </button>
+            <button type="button" class="nav-item" data-section="risk">
+                ⌁ <span></span> <b>›</b>
+            </button>
+            <button type="button" class="nav-item" data-section="alerts">
+                ♧ <span>Alerts</span> <em>2</em>
+            </button>
+            <button type="button" class="nav-item" data-section="reports">
+                ▣ <span>Reports</span> <b>›</b>
+            </button>
+            <button type="button" class="nav-item" data-section="safe-route">
+                ⌘ <span>Safe Route</span> <b>›</b>
+            </button>
+            <button type="button" class="nav-item" data-section="emergency">
+                ✚ <span>Emergency</span> <em class="sos-mini">SOS</em>
+            </button>
+            <button type="button" class="nav-item" data-section="services">
+                ▤ <span>Nearby Services</span> <b>›</b>
+            </button>
+            <button type="button" class="nav-item" data-section="analytics">
+                ⌗ <span>Analytics</span> <b>›</b>
+            </button>
+        </nav>
+
+        <div class="sidebar-sos">
+            <div class="sos-title">Emergency SOS</div>
+            <p>Quick help in critical situation</p>
+            <button type="button" id="callNow">CALL NOW</button>
+        </div>
+
+        <div class="sidebar-caption">
+            Drive Safe<br>
+            <small>Stay Ahead</small>
+        </div>
+    </aside>
+
+    <!-- =================================================
+         03. MAIN CONTENT
+         ================================================= -->
+    <main class="main">
+
+        <!-- DASHBOARD HOME SECTION -->
+        <section id="dashboard" class="page-section active">
+
+            <!-- Summary Grid -->
+            <div class="summary-grid">
+                <article class="summary-card">
+                    <div class="summary-icon blue">⌖</div>
+                    <div>
+                        <small>Your Location</small>
+                        <strong id="currentLocationName">Getting current location...</strong>
+                        <p id="currentLocationCoords">Waiting for GPS...</p>
+                    </div>
+                </article>
+
+                <article class="summary-card">
+                    <div class="summary-icon red">!</div>
+                    <div>
+
+                    </div>
+                </article>
+
+                <article class="summary-card">
+                    <div class="summary-icon blue">☁</div>
+                    <div>
+                        <small>Weather</small>
+                        <strong id="weatherCondition">Loading...</strong>
+                        <p id="weatherDetails">Getting weather data...</p>
+                    </div>
+                </article>
+
+                <article class="summary-card">
+                    <div class="summary-icon green">✓</div>
+                    <div>
+                        <small>Drive Safe</small>
+                        <strong>Wear Seatbelt</strong>
+                        <p>Drive within speed limit</p>
+                    </div>
+                </article>
+            </div>
+
+            <!-- Content Grid -->
+            <div class="content-grid">
+
+                <div class="left-column">
+                    <!-- safe route Panel -->
+                    <article class="panel map-panel">
+                       <div class="map-tabs">
+                        <button type="button" class="selected" id="safeRouteMapBtn">
+                            🟢 Safe Route
+                        </button>
+
+                            <button type="button" id="trafficToggleBtn" aria-pressed="false">♧ Traffic</button>
+                            <button type="button">⚠
+                            </button>
+                            <button type="button">☁ Weather</button>
+                        </div>
+
+                        <div class="map-stage">
+                            <div class="route-search-box">
+                                <input id="destinationInput" class="route-search-input" type="text" placeholder="Enter destination..." autocomplete="off">
+                                <button type="button" id="findRouteBtn" class="btn-find-route">Find Route</button>
+                            </div>
+
+                            <div id="roadSafetyMap"></div>
+
+                            <div class="map-controls">
+                                <button type="button" id="zoomInBtn" title="Zoom In">+</button>
+                                <button type="button" id="zoomOutBtn" title="Zoom Out">−</button>
+                                <button type="button" id="resetMapBtn" title="Reset Map">◎</button>
+                            </div>
+
+                            <button type="button" id="currentLocationBtn" class="current-location-btn" title="My Current Location">📍</button>
+
+                            <div class="legend">
+                                <span><i class="dot low"></i>Low Risk</span>
+                                <span><i class="dot medium"></i>Medium Risk</span>
+                                <span><i class="dot high-dot"></i>High Risk</span>
+                                <span><i class="dot very-high"></i>Very High Risk</span>
+                                <span><i class="dot wildlife-dot"></i>Wildlife Zone</span>
+                            </div>
+                        </div>
+                    </article>
+
+                    <!-- Quick Action Cards -->
+                    <div class="action-grid">
+                        <article class="action-card red-card">
+                            <div class="action-icon">🚗</div>
+                            <div>
+                                <strong>Report Accident</strong>
+                                <p>Report accident<br>&amp; help others</p>
+                            </div>
+                            <button type="button" onclick="openSection('reports')">Report Now</button>
+                        </article>
+
+                        <article class="action-card orange-card">
+                            <div class="action-icon">⚠</div>
+                            <div>
+                                <strong>Pothole Report</strong>
+                                <p>Report potholes<br>&amp; road issues</p>
+                            </div>
+                            <button type="button" onclick="openSection('reports')">Report Now</button>
+                        </article>
+
+                        <article class="action-card green-card">
+                            <div class="action-icon">⌘</div>
+                            <div>
+                                <strong>Safe Route</strong>
+                                <p>Find safest route<br>to destination</p>
+                            </div>
+                            <button type="button" onclick="openSection('safe-route')">Find Route</button>
+                        </article>
+
+                        <article class="action-card red-card">
+                            <div class="action-icon">SOS</div>
+                            <div>
+                                <strong>Emergency SOS</strong>
+                                <p>Need immediate<br>help?</p>
+                            </div>
+                            <button type="button" onclick="triggerSOS()">Send SOS</button>
+                        </article>
+                    </div>
+
+                    <!-- Recent Reports Panel -->
+                    <article class="panel reports-panel">
+                        <div class="panel-heading">
+                            <h2>Recent Reports</h2>
+                            <button type="button" onclick="openSection('reports')">View All</button>
+                        </div>
+
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Location</th>
+                                    <th>Description</th>
+                                    <th>Time</th>
+                                    <th>Status</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <tr>
+                                    <td>🚗 Accident</td>
+                                    <td>Mussoorie Road</td>
+                                    <td>Car collided with bike</td>
+                                    <td>10 min ago</td>
+                                    <td><span class="status resolved">Resolved</span></td>
+                                </tr>
+                                <tr>
+                                    <td>⚠ Pothole</td>
+                                    <td>Rajpur Road</td>
+                                    <td>Large pothole on left side</td>
+                                    <td>25 min ago</td>
+                                    <td><span class="status progress">In Progress</span></td>
+                                </tr>
+                                <tr>
+                                    <td>🚗 Accident</td>
+                                    <td>Haridwar Bypass</td>
+                                    <td>Multiple vehicle collision</td>
+                                    <td>1 hour ago</td>
+                                    <td><span class="status resolved">Resolved</span></td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+                </div>
+
+                <div class="right-column">
+                    <!-- Active Alerts -->
+                    <article class="panel alerts-panel">
+                        <div class="panel-heading">
+                            <h2>Active Alerts (3)</h2>
+                            <button type="button" onclick="openSection('alerts')">View All</button>
+                        </div>
+
+                        <div class="alert-row">
+                            <div class="alert-icon red">!</div>
+                            <div>
+                                <strong>High Risk Zone</strong>
+                                <p>You are entering an accident prone area</p>
+                            </div>
+                            <b class="ahead red-text">200 m ahead</b>
+                        </div>
+
+                        <div class="alert-row">
+                            <div class="alert-icon orange">⚠</div>
+                            <div>
+                                <strong>Hill Area</strong>
+                                <p>Steep roads and sharp turns ahead</p>
+                            </div>
+                            <b class="ahead orange-text">400 m ahead</b>
+                        </div>
+
+                        <div class="alert-row">
+                            <div class="alert-icon purple">✦</div>
+                            <div>
+                                <strong>Wildlife Zone</strong>
+                                <p>Wild animals crossing area</p>
+                            </div>
+                            <b class="ahead purple-text">600 m ahead</b>
+                        </div>
+                    </article>
+
+                    <!-- Risk Trend Chart -->
+                    <article class="panel chart-panel">
+                        <div class="panel-heading">
+                            <h2>Risk Score Trend</h2>
+                            <select aria-label="Risk Score Timeframe">
+                                <option>Today</option>
+                                <option>This Week</option>
+                            </select>
+                        </div>
+
+                        <div class="chart">
+                            <div class="y-axis">
+                                <span>100</span>
+                                <span>75</span>
+                                <span>50</span>
+                                <span>25</span>
+                                <span>0</span>
+                            </div>
+
+                            <svg viewBox="0 0 500 180" preserveAspectRatio="none">
+                                <defs>
+                                    <linearGradient id="area" x1="0" x2="0" y1="0" y2="1">
+                                        <stop offset="0" stop-opacity=".45" />
+                                        <stop offset="1" stop-opacity="0" />
+                                    </linearGradient>
+                                </defs>
+                                <path d="M0 130 C40 115, 55 80, 90 105 S135 130, 165 92 S215 105, 250 94 S290 48, 320 100 S370 135, 400 90 S455 112, 500 70 L500 180 L0 180Z" fill="url(#area)" />
+                                <path d="M0 130 C40 115, 55 80, 90 105 S135 130, 165 92 S215 105, 250 94 S290 48, 320 100 S370 135, 400 90 S455 112, 500 70" fill="none" stroke="currentColor" stroke-width="4" />
+                                <circle cx="500" cy="70" r="6" fill="currentColor" />
+                            </svg>
+
+                            <div class="chart-labels">
+                                <span>12 AM</span>
+                                <span>4 AM</span>
+                                <span>8 AM</span>
+                                <span>12 PM</span>
+                                <span>4 PM</span>
+                                <span>8 PM</span>
+                                <span>12 AM</span>
+                            </div>
+
+                            <div class="score-tooltip">
+                                <b>82</b>
+                                <small>High Risk</small>
+                            </div>
+                        </div>
+                    </article>
+
+                    <!-- Nearby Services -->
+                    <article class="panel services-panel">
+                        <div class="panel-heading">
+                            <h2>Nearby Services</h2>
+                            <button type="button" onclick="openSection('services')">View All</button>
+                        </div>
+
+                        <div class="service-row">
+                            <div class="service-icon">✚</div>
+                            <div>
+                                <strong>City Hospital</strong>
+                                <p>2.4 km away</p>
+                            </div>
+                            <span>0135-1234567</span>
+                            <button type="button" aria-label="Call City Hospital">☎</button>
+                        </div>
+
+                        <div class="service-row">
+                            <div class="service-icon">▣</div>
+                            <div>
+                                <strong>Dehradun Ambulance</strong>
+                                <p>1.8 km away</p>
+                            </div>
+                            <span>102</span>
+                            <button type="button" aria-label="Call Ambulance">☎</button>
+                        </div>
+
+                        <div class="service-row">
+                            <div class="service-icon blue-bg">♟</div>
+                            <div>
+                                <strong>Traffic Police</strong>
+                                <p>1.2 km away</p>
+                            </div>
+                            <span>100</span>
+                            <button type="button" aria-label="Call Traffic Police">☎</button>
+                        </div>
+                    </article>
+                </div>
+
+            </div>
+
+        </section>
+
+        <!-- LIVE MAP MODULE -->
+        <section id="live-map" class="page-section module-page">
+            <div class="module-hero">
+                <span>LIVE MAP</span>
+                <h2>Live Safety Map</h2>
+                <p>Track risk zones, road conditions, weather and nearby hazards.</p>
+            </div>
+            <div class="large-map-placeholder">
+                LIVE MAP • GPS • TRAFFIC • HAZARD ZONES
+            </div>
+        </section>
+
+        <!-- RISK PREDICTION MODULE -->
+        <section id="risk" class="page-section module-page">
+            <div class="module-hero">
+                <span>AI MODULE</span>
+                <h2>Accident Risk Prediction</h2>
+                <p>Historical accidents, weather, road condition, traffic and safety zones.</p>
+            </div>
+
+            <div class="metric-grid">
+                <div class="metric">
+                    <b>82%</b>
+                    <span>Current Risk Score</span>
+                </div>
+                <div class="metric">
+                    <b>HIGH</b>
+                    <span>Risk Level</span>
+                </div>
+                <div class="metric">
+                    <b>94%</b>
+                    <span>Model Confidence</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- SAFETY ALERTS MODULE -->
+        <section id="alerts" class="page-section module-page">
+            <div class="module-hero">
+                <span>SAFETY</span>
+                <h2>Safety Alerts</h2>
+                <p>Location-aware preventive warnings before risky conditions.</p>
+            </div>
+
+            <div class="module-list">
+                <div>🔴 High Risk Zone <span>200 m ahead</span></div>
+                <div>🟠 Hill Area <span>400 m ahead</span></div>
+                <div>🟣 Wildlife Zone <span>600 m ahead</span></div>
+                <div>🌧 Bad Weather <span>Active</span></div>
+            </div>
+        </section>
+
+        <!-- REPORTS MODULE -->
+        <section id="reports" class="page-section module-page">
+            <div class="module-hero">
+                <span>REPORTING</span>
+                <h2>Accident &amp; Pothole Reports</h2>
+                <p>Submit road incidents and road-condition problems for analysis.</p>
+            </div>
+
+            <div class="report-form">
+                <input type="text" placeholder="Location">
+                <select aria-label="Report Type">
+                    <option>Accident</option>
+                    <option>Pothole</option>
+                    <option>Road Condition</option>
+                </select>
+                <textarea placeholder="Describe the issue..."></textarea>
+                <button type="button" class="primary-large">Submit Report</button>
+            </div>
+        </section>
+
+        <!-- SAFE ROUTE MODULE -->
+        <section id="safe-route" class="page-section module-page">
+
+            <div class="module-hero">
+                <span>ROUTE</span>
+                <h2>Safe Route Recommendation</h2>
+                <p>
+                    Choose the safest practical route, not simply the shortest route.
+                </p>
+            </div>
+
+            <div id="routeWeatherResults" class="route-weather-results">
+                <div class="route-weather-empty">
+                    Enter a destination and click <b>Find Route</b>.
+                </div>
+            </div>
+
+        </section>
+
+
+        <!-- EMERGENCY SOS MODULE -->
+        <section id="emergency" class="page-section module-page">
+            <div class="module-hero danger-hero">
+                <span>EMERGENCY</span>
+                <h2>SOS &amp; Accident Assistance</h2>
+                <p>Manual SOS, possible accident detection, countdown and GPS sharing.</p>
+            </div>
+
+            <button type="button" class="sos-big" onclick="triggerSOS()">
+                SEND EMERGENCY SOS
+            </button>
+
+            <div class="module-list">
+                <div>📍 GPS Location Sharing <span>Ready</span></div>
+                <div>📞 Emergency Contact <span>Configured</span></div>
+                <div>🏥 Nearby Hospital <span>2.4 km</span></div>
+            </div>
+        </section>
+
+        <!-- NEARBY SERVICES MODULE -->
+        <section id="services" class="page-section module-page">
+            <div class="module-hero">
+                <span>SERVICES</span>
+                <h2>Nearby Emergency Services</h2>
+                <p>Hospitals, ambulances and traffic police around your current location.</p>
+            </div>
+
+            <div class="service-cards">
+                <div>
+                    🏥
+                    <b>City Hospital</b>
+                    <span>2.4 km • 0135-1234567</span>
+                </div>
+
+                <div>
+                    🚑
+                    <b>Dehradun Ambulance</b>
+                    <span>1.8 km • 102</span>
+                </div>
+
+                <div>
+                    👮
+                    <b>Traffic Police</b>
+                    <span>1.2 km • 100</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ANALYTICS MODULE -->
+        <section id="analytics" class="page-section module-page">
+            <div class="module-hero">
+                <span>ANALYTICS</span>
+                <h2>Road Safety Analytics</h2>
+                <p>Accident trends, risk distribution, reports and safety-zone statistics.</p>
+            </div>
+
+            <div class="metric-grid">
+                <div class="metric">
+                    <b>1,245</b>
+                    <span>Total Accidents</span>
+                </div>
+                <div class="metric">
+                    <b>86</b>
+                    <span>High Risk Locations</span>
+                </div>
+                <div class="metric">
+                    <b>342</b>
+                    <span>Road Reports</span>
+                </div>
+                <div class="metric">
+                    <b>12</b>
+                    <span>Active SOS</span>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+</div>
+
+<!-- Toast Notification Container -->
+<div id="toast" class="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/map.js"></script>
+<script src="js/geofence.js"></script>
+<script src="js/app.js"></script>
+<script>
+    async function loadWeather(latitude, longitude) {
+
+        try {
+
+            const response = await fetch(
+                `http://localhost:8080/api/weather?lat=${latitude}&lon=${longitude}`
+            );
+
+            if (!response.ok) {
+                throw new Error("Weather API request failed");
+            }
+
+            const weather = await response.json();
+
+            const condition = weather.weather?.[0]?.main || "Unknown";
+            const description = weather.weather?.[0]?.description || "";
+
+            const temperature = weather.main?.temp;
+            const humidity = weather.main?.humidity;
+
+            document.getElementById("weatherCondition").textContent =
+                condition;
+
+            document.getElementById("weatherDetails").textContent =
+                `${temperature}°C • Humidity ${humidity}%`;
+
+            console.log("Weather:", weather);
+
+        } catch (error) {
+
+            console.error("Weather Error:", error);
+
+            document.getElementById("weatherCondition").textContent =
+                "Unavailable";
+
+            document.getElementById("weatherDetails").textContent =
+                "Weather data unavailable";
+        }
+    }
+
+
+    function startWeatherTracking() {
+
+        if (!navigator.geolocation) {
+
+            document.getElementById("weatherCondition").textContent =
+                "GPS Not Supported";
+
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+
+            function(position) {
+
+                const latitude = position.coords.latitude;
+                const longitude = position.coords.longitude;
+
+                console.log("Weather Location:", latitude, longitude);
+
+                loadWeather(latitude, longitude);
+            },
+
+            function(error) {
+
+                console.error("GPS Error:", error);
+
+                document.getElementById("weatherCondition").textContent =
+                    "Location unavailable";
+
+                document.getElementById("weatherDetails").textContent =
+                    "Allow location access";
+            },
+
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 60000
+            }
+        );
+    }
+
+
+    // Load weather when dashboard opens
+    document.addEventListener("DOMContentLoaded", function() {
+        startWeatherTracking();
+    });
+</script>
+
+</body>
+
+</html>

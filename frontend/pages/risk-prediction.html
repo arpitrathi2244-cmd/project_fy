@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Accident Risk Prediction</title>
+
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="../css/risk-prediction.css">
+</head>
+
+<body>
+
+<div class="app-shell">
+
+    <header class="topbar">
+
+        <div class="brand">
+            <div class="brand-mark">🛡</div>
+
+            <div>
+                <h1>Road Safety & Accident Prevention System</h1>
+                <p>Safer Roads, Brighter Tomorrows</p>
+            </div>
+        </div>
+
+        <div class="top-actions">
+            <a class="auth-btn outline" href="sign-in.html">Sign In</a>
+            <a class="auth-btn primary" href="sign-up.html">Sign Up</a>
+        </div>
+
+    </header>
+
+
+    <main class="risk-container">
+
+        <section class="risk-card">
+
+            <div class="module-hero">
+
+                <span>AI MODULE</span>
+
+                <h2>Accident Risk Prediction</h2>
+
+                <p>
+                    Enter basic driving information. The system will use
+                    available road and environmental information to predict
+                    accident risk.
+                </p>
+
+            </div>
+
+
+            <form id="riskForm">
+
+                <div class="form-grid">
+
+                    <!-- Vehicle -->
+                    <div class="form-group">
+
+                        <label for="vehicleType">
+                            🚗 Vehicle Type
+                        </label>
+
+                        <select id="vehicleType" required>
+
+                            <option value="">Select Vehicle</option>
+
+                            <option value="Automobile">Car</option>
+
+                            <option value="Motorcycle">
+                                Motorcycle
+                            </option>
+
+                            <option value="Taxi">
+                                Taxi
+                            </option>
+
+                            <option value="Bus">
+                                Bus
+                            </option>
+
+                            <option value="Truck">
+                                Truck
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <!-- Age -->
+                    <div class="form-group">
+
+                        <label for="ageGroup">
+                            👤 Age Group
+                        </label>
+
+                        <select id="ageGroup" required>
+
+                            <option value="">Select Age Group</option>
+
+                            <option value="18-30">18-30</option>
+
+                            <option value="31-50">31-50</option>
+
+                            <option value="Over 51">
+                                Over 51
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <!-- Driving Experience -->
+                    <div class="form-group">
+
+                        <label for="experience">
+                            🚘 Driving Experience
+                        </label>
+
+                        <select id="experience" required>
+
+                            <option value="">
+                                Select Experience
+                            </option>
+
+                            <option value="Below 1yr">
+                                Below 1 year
+                            </option>
+
+                            <option value="1-2yr">
+                                1-2 years
+                            </option>
+
+                            <option value="2-5yr">
+                                2-5 years
+                            </option>
+
+                            <option value="5-10yr">
+                                5-10 years
+                            </option>
+
+                            <option value="Above 10yr">
+                                Above 10 years
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <!-- Road Condition -->
+                    <div class="form-group">
+
+                        <label for="roadCondition">
+                            🛣️ Road Condition
+                        </label>
+
+                        <select id="roadCondition" required>
+
+                            <option value="">
+                                Select Condition
+                            </option>
+
+                            <option value="Dry">
+                                Dry
+                            </option>
+
+                            <option value="Wet or damp">
+                                Wet / Damp
+                            </option>
+
+                            <option value="Flood over 3cm. deep">
+                                Flooded
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <!-- Traffic -->
+                    <div class="form-group">
+
+                        <label for="traffic">
+                            🚦 Traffic Level
+                        </label>
+
+                        <select id="traffic" required>
+
+                            <option value="">
+                                Select Traffic
+                            </option>
+
+                            <option value="Low">
+                                Low
+                            </option>
+
+                            <option value="Medium">
+                                Medium
+                            </option>
+
+                            <option value="High">
+                                High
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                    <!-- Weather -->
+                    <div class="form-group">
+
+                        <label for="weather">
+                            🌦️ Weather
+                        </label>
+
+                        <select id="weather" required>
+
+                            <option value="">
+                                Select Weather
+                            </option>
+
+                            <option value="Normal">
+                                Normal
+                            </option>
+
+                            <option value="Raining">
+                                Raining
+                            </option>
+
+                            <option value="Raining and Windy">
+                                Raining & Windy
+                            </option>
+
+                            <option value="Fog or Mist">
+                                Fog / Mist
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+                </div>
+
+
+                <button type="submit"
+                        class="predict-btn">
+
+                    Predict Accident Risk
+
+                </button>
+
+            </form>
+
+
+            <!-- Result -->
+
+            <div id="resultBox"
+                 class="result-box hidden">
+
+                <h3>AI Risk Prediction</h3>
+
+                <div id="riskLevel">
+                    --
+                </div>
+
+                <div class="probabilities">
+
+                    <div>
+                        <span>High Risk</span>
+                        <b id="highProbability">0%</b>
+                    </div>
+
+                    <div>
+                        <span>Medium Risk</span>
+                        <b id="mediumProbability">0%</b>
+                    </div>
+
+                    <div>
+                        <span>Low Risk</span>
+                        <b id="lowProbability">0%</b>
+                    </div>
+
+                </div>
+
+                <p id="riskMessage"></p>
+
+            </div>
+
+
+            <a class="auth-btn primary back-btn"
+               href="../index.html">
+
+                ← Back to Dashboard
+
+            </a>
+
+        </section>
+
+    </main>
+
+</div>
+
+
+<script src="../js/risk-prediction.js"></script>
+
+</body>
+
+</html>
