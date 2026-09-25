@@ -1915,10 +1915,16 @@ async function loadAISafeRoutePrediction(
                         )
                             ? window.routeTrafficData.find(
                                 item =>
-                                    item.name ===
-                                    route.name
+                                    item.id === route.id ||
+                                    item.name === route.name
                             )
                             : null;
+
+                    const trafficPoints =
+                        trafficRoute &&
+                        Array.isArray(trafficRoute.trafficPoints)
+                            ? trafficRoute.trafficPoints
+                            : [];
 
 
                     const congestion =
@@ -1979,6 +1985,28 @@ async function loadAISafeRoutePrediction(
                                 0
                             ),
 
+                        coordinates:
+                            Array.isArray(route.coordinates)
+                                ? route.coordinates
+                                : (Array.isArray(route.points)
+                                    ? route.points.map(point => [
+                                        Number(point.lon ?? point.lng),
+                                        Number(point.lat)
+                                    ]).filter(coord =>
+                                        Number.isFinite(coord[0]) &&
+                                        Number.isFinite(coord[1])
+                                    )
+                                    : []),
+
+                        // Keep every live weather reading for route-level AI integration.
+                        weatherPoints:
+                            Array.isArray(weatherPoints)
+                                ? weatherPoints
+                                : [],
+
+                        // Keep every live traffic reading for route-level AI integration.
+                        trafficPoints:
+                            trafficPoints,
 
                         features: {
 
@@ -2193,31 +2221,49 @@ function renderAISafeRouteResult(
                         route.id;
 
 
+                    const liveWeatherRisk =
+                        Number(route.liveWeatherRiskPercentage);
+
+                    const liveTrafficRisk =
+                        Number(route.liveTrafficRiskPercentage);
+
+                    const nearbyAccidents =
+                        Number(route.nearbyAccidentCount || 0);
+
                     aiBox.innerHTML = `
 
                         <div>
-
                             <strong>
                                 🤖 AI RISK
                             </strong>
-
                             <span>
-                                ${route.riskLevel}
+                                ${route.finalRiskLevel || "N/A"}
                             </span>
-
                         </div>
 
                         <div>
-
                             <b>
-                                ${route.riskPercentage}%
+                                ${Number.isFinite(Number(route.finalRiskPercentage)) ? Number(route.finalRiskPercentage).toFixed(1) : "N/A"}%
                             </b>
-
                             <small>
                                 Risk Score:
-                                ${route.riskScore}
+                                ${Number.isFinite(Number(route.finalRiskScore)) ? Number(route.finalRiskScore).toFixed(2) : "N/A"}
                             </small>
+                        </div>
 
+                        <div>
+                            <small>
+                                Weather risk: ${Number.isFinite(liveWeatherRisk) ? liveWeatherRisk.toFixed(1) : "N/A"}% •
+                                Traffic risk: ${Number.isFinite(liveTrafficRisk) ? liveTrafficRisk.toFixed(1) : "N/A"}%
+                            </small>
+                        </div>
+
+                        <div>
+                            <small>
+                                ${nearbyAccidents > 0
+                                    ? `Nearby recorded crashes: ${nearbyAccidents}`
+                                    : "Historical data: No nearby recorded crash found"}
+                            </small>
                         </div>
 
                         ${

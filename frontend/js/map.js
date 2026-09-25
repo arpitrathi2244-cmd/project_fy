@@ -1233,25 +1233,10 @@ document.addEventListener("DOMContentLoaded", function () {
        is required.
     */
 
-    const safeRouteMapBtn = document.querySelector(".map-tabs button:first-child");
+    const safeRouteMapBtn =
+        document.querySelector(".map-tabs button:first-child");
 
-    if (safeRouteMapBtn) {
-        safeRouteMapBtn.id = "safeRouteMapBtn";
-        safeRouteMapBtn.innerHTML = "🟢 Safe Route";
-
-        safeRouteMapBtn.addEventListener("click", async function () {
-
-            // Active/blue state
-            document.querySelectorAll(".map-tabs button").forEach(btn => {
-                btn.classList.remove("active", "safe-route-active");
-            });
-
-            this.classList.add("active", "safe-route-active");
-
-            // Existing Safe Route function
-            await showAISafeRouteOnMap();
-        });
-    }
+    let safeRouteActive = false;
 
 
     const SAFE_ROUTE_AI_API =
@@ -1463,6 +1448,19 @@ document.addEventListener("DOMContentLoaded", function () {
                     durationMin:
                         Number(route.durationMin || 0),
 
+                    coordinates:
+                        Array.isArray(route.coordinates)
+                            ? route.coordinates
+                            : (Array.isArray(route.points)
+                                ? route.points.map(point => [
+                                    Number(point.lon ?? point.lng),
+                                    Number(point.lat)
+                                ]).filter(coord =>
+                                    Number.isFinite(coord[0]) &&
+                                    Number.isFinite(coord[1])
+                                )
+                                : []),
+
                     features:
                         buildSafeRouteAIFeatures(
                             route,
@@ -1671,9 +1669,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const riskPercentage =
             aiRouteData &&
-            aiRouteData.riskPercentage !== undefined
+            aiRouteData.finalRiskPercentage !== undefined
                 ? Number(
-                    aiRouteData.riskPercentage
+                    aiRouteData.finalRiskPercentage
                 ).toFixed(1)
                 : "N/A";
 
@@ -1699,27 +1697,199 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
 
+    /* =========================================================
+       SAFE ROUTE ON / OFF TOGGLE
+       ========================================================= */
+
+    function saveOriginalRouteStyles() {
+
+        if (!Array.isArray(window.routeLayers)) {
+            return;
+        }
+
+        window.routeLayers.forEach((layer) => {
+
+            if (!layer) {
+                return;
+            }
+
+            if (!layer._originalSafeRouteStyle) {
+
+                const style = layer.options || {};
+
+                layer._originalSafeRouteStyle = {
+                    color: style.color,
+                    weight: style.weight,
+                    opacity: style.opacity,
+                    fillOpacity: style.fillOpacity
+                };
+            }
+        });
+    }
+
+
+    function restoreNormalRoutes() {
+
+        if (!Array.isArray(window.routeLayers)) {
+            return;
+        }
+
+        window.routeLayers.forEach((layer) => {
+
+            if (!layer) {
+                return;
+            }
+
+            const original = layer._originalSafeRouteStyle;
+
+            if (original) {
+
+                const restoreStyle = {};
+
+                if (original.color !== undefined) {
+                    restoreStyle.color = original.color;
+                }
+                if (original.weight !== undefined) {
+                    restoreStyle.weight = original.weight;
+                }
+                if (original.opacity !== undefined) {
+                    restoreStyle.opacity = original.opacity;
+                }
+                if (original.fillOpacity !== undefined) {
+                    restoreStyle.fillOpacity = original.fillOpacity;
+                }
+
+                layer.setStyle(restoreStyle);
+
+            } else {
+
+                layer.setStyle({
+                    weight: 5,
+                    opacity: 0.55
+                });
+            }
+        });
+
+        if (typeof map.closePopup === "function") {
+            map.closePopup();
+        }
+    }
+
+
+    async function enableSafeRoute() {
+
+        if (
+            !Array.isArray(window.generatedRoutes) ||
+            window.generatedRoutes.length === 0 ||
+            !Array.isArray(window.routeLayers) ||
+            window.routeLayers.length === 0
+        ) {
+
+            alert("Pehle destination enter karke Find Route dabao.");
+            return;
+        }
+
+        saveOriginalRouteStyles();
+
+        try {
+
+            await showAISafeRouteOnMap();
+
+            if (
+                !window.aiSafeRouteData ||
+                !window.aiSafeRouteData.recommendedRouteId
+            ) {
+                return;
+            }
+
+            safeRouteActive = true;
+
+            if (safeRouteMapBtn) {
+
+                safeRouteMapBtn.classList.add(
+                    "active",
+                    "safe-route-active"
+                );
+
+                safeRouteMapBtn.classList.remove("selected");
+
+                safeRouteMapBtn.innerHTML = "🔵 Safe Route ON";
+            }
+
+            console.log("Safe Route: ON");
+
+        } catch (error) {
+
+            safeRouteActive = false;
+
+            console.error("Safe Route ON error:", error);
+        }
+    }
+
+
+    function disableSafeRoute() {
+
+        safeRouteActive = false;
+
+        restoreNormalRoutes();
+
+        if (safeRouteMapBtn) {
+
+            safeRouteMapBtn.classList.remove(
+                "active",
+                "safe-route-active",
+                "selected"
+            );
+
+            safeRouteMapBtn.innerHTML = "🟢 Safe Route";
+        }
+
+        if (
+            Array.isArray(window.routeLayers) &&
+            window.routeLayers.length > 0
+        ) {
+
+            const allBounds =
+                L.featureGroup(window.routeLayers);
+
+            map.fitBounds(
+                allBounds.getBounds(),
+                { padding: [30, 30] }
+            );
+        }
+
+        console.log("Safe Route: OFF");
+    }
+
+
     if (safeRouteMapBtn) {
 
-        safeRouteMapBtn.id =
-            "safeRouteMapBtn";
+        safeRouteMapBtn.id = "safeRouteMapBtn";
+        safeRouteMapBtn.innerHTML = "🟢 Safe Route";
 
-        safeRouteMapBtn.innerHTML =
-            "🟢 Safe Route";
-
-        safeRouteMapBtn.classList.add(
+        safeRouteMapBtn.classList.remove(
+            "active",
+            "safe-route-active",
             "selected"
         );
 
         safeRouteMapBtn.addEventListener(
             "click",
-            showAISafeRouteOnMap
+            async function () {
+
+                if (safeRouteActive) {
+                    disableSafeRoute();
+                } else {
+                    await enableSafeRoute();
+                }
+            }
         );
     }
 
 
-    window.showAISafeRouteOnMap =
-        showAISafeRouteOnMap;
+    window.enableSafeRoute = enableSafeRoute;
+    window.disableSafeRoute = disableSafeRoute;
+    window.showAISafeRouteOnMap = showAISafeRouteOnMap;
 
 
     /* =========================================================
@@ -1996,288 +2166,439 @@ document.addEventListener("DOMContentLoaded", function () {
        18. DRAW ROUTE USING OSRM
        ========================================================= */
 
-    async function drawRoute(
+    /* =========================================================
+       18. DRAW ROUTES USING OSRM
+       ========================================================= */
 
+    async function fetchOSRMJson(url) {
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(
+                `Routing API request failed: ${response.status}`
+            );
+        }
+
+        const data = await response.json();
+
+        if (data.code !== "Ok" || !Array.isArray(data.routes)) {
+            return { routes: [] };
+        }
+
+        return data;
+    }
+
+
+    function buildRouteFromOSRM(
+        route,
+        index,
+        sourceTag = "osrm"
+    ) {
+
+        const coordinates =
+            Array.isArray(route?.geometry?.coordinates)
+                ? route.geometry.coordinates
+                    .map(coord => [
+                        Number(coord[0]),
+                        Number(coord[1])
+                    ])
+                    .filter(coord =>
+                        Number.isFinite(coord[0]) &&
+                        Number.isFinite(coord[1])
+                    )
+                : [];
+
+        const points = coordinates.map(coord => ({
+            lon: coord[0],
+            lat: coord[1]
+        }));
+
+        return {
+            id: `${sourceTag}-${index + 1}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            name: "",
+            distanceKm: Number(route.distance || 0) / 1000,
+            durationMin: Number(route.duration || 0) / 60,
+            points,
+            coordinates
+        };
+    }
+
+
+    function routeSignature(route) {
+
+        const coords =
+            Array.isArray(route?.coordinates)
+                ? route.coordinates
+                : [];
+
+        if (coords.length < 2) {
+            return "";
+        }
+
+        const sampleIndexes = [
+            0,
+            Math.floor(coords.length * 0.25),
+            Math.floor(coords.length * 0.50),
+            Math.floor(coords.length * 0.75),
+            coords.length - 1
+        ];
+
+        return sampleIndexes
+            .map(index => {
+                const point = coords[index] || [0, 0];
+                return `${Number(point[0]).toFixed(4)},${Number(point[1]).toFixed(4)}`;
+            })
+            .join("|");
+    }
+
+
+    function deduplicateRoutes(routes) {
+
+        const unique = [];
+        const seen = new Set();
+
+        routes.forEach(route => {
+
+            const signature = routeSignature(route);
+
+            if (!signature || seen.has(signature)) {
+                return;
+            }
+
+            seen.add(signature);
+            unique.push(route);
+        });
+
+        return unique;
+    }
+
+
+    function buildCorridorWaypoints(
         startLat,
-
         startLon,
-
         destinationLat,
-
         destinationLon
+    ) {
 
+        const latDelta = destinationLat - startLat;
+        const lonDelta = destinationLon - startLon;
+        const length = Math.sqrt(
+            (latDelta * latDelta) +
+            (lonDelta * lonDelta)
+        ) || 1;
+
+        // Unit vector perpendicular to the direct line.
+        const perpLat = -lonDelta / length;
+        const perpLon = latDelta / length;
+
+        // Multiple corridor offsets intentionally create
+        // additional practical route candidates.
+        const offsets = [
+            0.015,
+            -0.015,
+            0.035,
+            -0.035
+        ];
+
+        const fractions = [
+            0.35,
+            0.50,
+            0.65
+        ];
+
+        const waypoints = [];
+
+        fractions.forEach(fraction => {
+
+            const baseLat =
+                startLat + latDelta * fraction;
+
+            const baseLon =
+                startLon + lonDelta * fraction;
+
+            offsets.forEach(offset => {
+
+                waypoints.push({
+                    lat: baseLat + perpLat * offset,
+                    lon: baseLon + perpLon * offset
+                });
+
+            });
+        });
+
+        return waypoints;
+    }
+
+
+    async function drawRoute(
+        startLat,
+        startLon,
+        destinationLat,
+        destinationLon
     ) {
 
         try {
 
+            /* =================================================
+               1. NORMAL OSRM ALTERNATIVES
+               OSRM supports up to 3 requested alternatives on
+               its standard server, but may return fewer.
+               ================================================= */
 
-            const url =
-
+            const baseUrl =
                 `https://router.project-osrm.org/route/v1/driving/` +
-
                 `${startLon},${startLat};` +
-
                 `${destinationLon},${destinationLat}` +
+                `?alternatives=3&overview=full&geometries=geojson`;
 
-                `?alternatives=2&overview=full&geometries=geojson`;
+            const baseData =
+                await fetchOSRMJson(baseUrl);
 
+            if (!baseData.routes.length) {
 
-            const response =
-                await fetch(
-                    url
-                );
-
-
-            if (!response.ok) {
-
-                throw new Error(
-                    "Routing API request failed"
-                );
-
-            }
-
-
-            const data =
-                await response.json();
-
-
-            if (
-
-                data.code !== "Ok" ||
-
-                !data.routes ||
-
-                !data.routes.length
-
-            ) {
-
-                alert(
-                    "Route could not be found."
-                );
-
+                alert("Route could not be found.");
                 return;
-
             }
+
+
+            let candidateOSRMRoutes =
+                [...baseData.routes];
 
 
             /* =================================================
-               REMOVE OLD ROUTES
+               2. EXTRA CORRIDOR ROUTES
+               OSRM does not promise every physically possible
+               route. To get more distinct practical candidates,
+               route through several corridor waypoints too.
+               ================================================= */
+
+            const waypoints =
+                buildCorridorWaypoints(
+                    startLat,
+                    startLon,
+                    destinationLat,
+                    destinationLon
+                );
+
+            const extraPromises =
+                waypoints.map((waypoint, index) => {
+
+                    const url =
+                        `https://router.project-osrm.org/route/v1/driving/` +
+                        `${startLon},${startLat};` +
+                        `${waypoint.lon},${waypoint.lat};` +
+                        `${destinationLon},${destinationLat}` +
+                        `?alternatives=3&overview=full&geometries=geojson`;
+
+                    return fetchOSRMJson(url)
+                        .then(data => ({
+                            index,
+                            data
+                        }))
+                        .catch(error => {
+                            console.warn(
+                                "Extra route query failed:",
+                                error
+                            );
+                            return {
+                                index,
+                                data: { routes: [] }
+                            };
+                        });
+                });
+
+            const extraResults =
+                await Promise.all(extraPromises);
+
+            extraResults.forEach(result => {
+
+                if (Array.isArray(result.data.routes)) {
+                    candidateOSRMRoutes.push(
+                        ...result.data.routes
+                    );
+                }
+            });
+
+
+            /* =================================================
+               3. CONVERT + DEDUPLICATE
+               ================================================= */
+
+            let routes =
+                candidateOSRMRoutes
+                    .map((route, index) =>
+                        buildRouteFromOSRM(
+                            route,
+                            index,
+                            "candidate"
+                        )
+                    )
+                    .filter(route =>
+                        route.coordinates.length >= 2
+                    );
+
+            routes = deduplicateRoutes(routes);
+
+
+            /* =================================================
+               4. KEEP PRACTICAL ROUTES
+               Don't keep extreme accidental detours created by
+               corridor waypoints. The fastest route is always
+               retained; others can be up to 2.0x its distance.
+               ================================================= */
+
+            const fastestDistance =
+                Math.min(
+                    ...routes.map(route =>
+                        route.distanceKm
+                    )
+                );
+
+            routes = routes.filter(route =>
+                fastestDistance <= 0 ||
+                route.distanceKm <=
+                    fastestDistance * 2.0
+            );
+
+
+            /* =================================================
+               5. SORT BY ROUTE DISTANCE
+               ================================================= */
+
+            routes.sort(
+                (a, b) =>
+                    a.distanceKm - b.distanceKm
+            );
+
+
+            /* =================================================
+               6. DISPLAY ALL DISTINCT PRACTICAL CANDIDATES
+               Keep a sensible upper bound so weather/traffic
+               APIs are not hammered on one click.
+               ================================================= */
+
+            const MAX_PRACTICAL_ROUTES = 10;
+
+            routes =
+                routes.slice(
+                    0,
+                    MAX_PRACTICAL_ROUTES
+                );
+
+            routes.forEach((route, index) => {
+
+                route.id = `route-${index + 1}`;
+                route.name =
+                    `Route ${String.fromCharCode(65 + index)}`;
+            });
+
+
+            /* =================================================
+               7. REMOVE OLD ROUTES
                ================================================= */
 
             if (window.routeLayers) {
 
                 window.routeLayers.forEach(
-
-                    layer => {
-
-                        map.removeLayer(
-                            layer
-                        );
-
-                    }
-
+                    layer => map.removeLayer(layer)
                 );
-
             }
 
-
-            window.routeLayers =
-                [];
+            window.routeLayers = [];
 
 
             /* =================================================
-               CREATE ROUTE DATA
-               ================================================= */
-
-            const routes =
-
-                data.routes.map(
-
-                    (route, index) => {
-
-
-                        const routePoints =
-
-                            route.geometry.coordinates.map(
-
-                                coord => ({
-
-                                    lat:
-                                        coord[1],
-
-                                    lon:
-                                        coord[0]
-
-                                })
-
-                            );
-
-
-                        return {
-
-                            id:
-                                `route-${index + 1}`,
-
-                            name:
-                                `Route ${
-                                    String.fromCharCode(
-                                        65 + index
-                                    )
-                                }`,
-
-                            distanceKm:
-                                route.distance /
-                                1000,
-
-                            durationMin:
-                                route.duration /
-                                60,
-
-                            points:
-                            routePoints
-
-                        };
-
-                    }
-
-                );
-
-
-            /* =================================================
-               SAVE GENERATED ROUTES FOR AI SAFE ROUTE BUTTON
+               8. SAVE ROUTES FOR AI SAFE ROUTE
                ================================================= */
 
             window.generatedRoutes = routes;
+            window.aiSafeRouteData = null;
+            safeRouteActive = false;
+
+            if (safeRouteMapBtn) {
+
+                safeRouteMapBtn.classList.remove(
+                    "active",
+                    "safe-route-active",
+                    "selected"
+                );
+
+                safeRouteMapBtn.innerHTML =
+                    "🟢 Safe Route";
+            }
 
 
             /* =================================================
-               DRAW ALL AVAILABLE ROUTES
+               9. DRAW EVERY DISTINCT ROUTE
                ================================================= */
 
-            data.routes.forEach(
+            routes.forEach((route, index) => {
 
-                (route, index) => {
+                const isMainRoute = index === 0;
 
+                const originalRouteStyle = {
+                    color: "#3388ff",
+                    weight: isMainRoute ? 7 : 5,
+                    opacity: isMainRoute ? 0.90 : 0.55
+                };
 
-                    const isMainRoute =
-                        index === 0;
+                const layer =
+                    L.geoJSON(
+                        {
+                            type: "LineString",
+                            coordinates: route.coordinates
+                        },
+                        {
+                            style: originalRouteStyle
+                        }
+                    ).addTo(map);
 
+                layer._originalSafeRouteStyle = {
+                    color: originalRouteStyle.color,
+                    weight: originalRouteStyle.weight,
+                    opacity: originalRouteStyle.opacity
+                };
 
-                    const layer =
+                layer.bindPopup(
+                    `<b>🚗 ${route.name}</b><br>` +
+                    `Distance: ${route.distanceKm.toFixed(1)} km<br>` +
+                    `ETA: ${Math.round(route.durationMin)} min`
+                );
 
-                        L.geoJSON(
-
-                            route.geometry,
-
-                            {
-
-                                style: {
-
-                                    weight:
-
-                                        isMainRoute
-
-                                            ? 7
-
-                                            : 5,
-
-                                    opacity:
-
-                                        isMainRoute
-
-                                            ? 0.90
-
-                                            : 0.55
-
-                                }
-
-                            }
-
-                        ).addTo(map);
+                window.routeLayers.push(layer);
+            });
 
 
-                    const distanceKm =
+            if (!window.routeLayers.length) {
 
-                        (
-
-                            route.distance /
-                            1000
-
-                        ).toFixed(1);
-
-
-                    const durationMin =
-
-                        Math.round(
-
-                            route.duration /
-                            60
-
-                        );
-
-
-                    layer.bindPopup(
-
-                        `<b>🚗 Route ${
-                            String.fromCharCode(
-                                65 + index
-                            )
-                        }</b><br>` +
-
-                        `Distance: ${distanceKm} km<br>` +
-
-                        `ETA: ${durationMin} min`
-
-                    );
-
-
-                    window.routeLayers.push(
-                        layer
-                    );
-
-                }
-
-            );
+                alert("No practical routes were found.");
+                return;
+            }
 
 
             /* =================================================
-               FIT MAP TO ALL ROUTES
+               10. FIT MAP TO ALL ROUTES
                ================================================= */
 
             const allBounds =
-
                 L.featureGroup(
                     window.routeLayers
                 );
 
-
             map.fitBounds(
-
                 allBounds.getBounds(),
-
-                {
-
-                    padding:
-                        [
-                            30,
-                            30
-                        ]
-
-                }
-
+                { padding: [30, 30] }
             );
 
 
             /* =================================================
-               SEND ROUTES TO WEATHER + TRAFFIC
+               11. WEATHER + TRAFFIC + AI FOR EVERY ROUTE
                ================================================= */
 
             if (
-
-                typeof
-                    window.loadRouteWeather ===
+                typeof window.loadRouteWeather ===
                 "function"
-
             ) {
 
                 await window.loadRouteWeather(
@@ -2289,26 +2610,17 @@ document.addEventListener("DOMContentLoaded", function () {
                 console.error(
                     "loadRouteWeather() not found. Check app.js"
                 );
-
             }
 
-
-            /* =================================================
-               KEEP TRAFFIC ON AFTER NEW ROUTE
-               ================================================= */
 
             if (trafficEnabled) {
-
                 refreshTrafficTiles();
-
             }
 
-
             console.log(
-                "Generated Routes:",
+                `Generated ${routes.length} distinct practical routes:`,
                 routes
             );
-
 
         } catch (error) {
 
@@ -2317,13 +2629,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 error
             );
 
-
             alert(
-                "Unable to calculate route."
+                "Unable to calculate routes."
             );
-
         }
-
     }
 
 

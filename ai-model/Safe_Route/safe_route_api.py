@@ -1,412 +1,359 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import joblib
 import pandas as pd
 import numpy as np
 import os
 
-app = Flask(__name__)
+from accident_history import load_accident_history, route_history_risk
 
+app = Flask(__name__)
+CORS(app)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-MODEL_PATH = os.path.join(
-    BASE_DIR,
-    "safe_route_model.joblib"
-)
+SAFE_MODEL_PATH = os.path.join(BASE_DIR, "safe_route_model.joblib")
+ACCIDENT_MODEL_PATH = os.path.join(BASE_DIR, "..", "Accident_Risk", "accident_risk_model.joblib")
+HISTORY_CSV_PATH = os.path.join(BASE_DIR, "..", "dataset", "india_accident_history_2022_2023.csv")
+
+for required_path, label in [
+    (SAFE_MODEL_PATH, "Safe-route model"),
+    (ACCIDENT_MODEL_PATH, "Accident-risk model"),
+    (HISTORY_CSV_PATH, "Accident history CSV"),
+]:
+    if not os.path.exists(required_path):
+        raise FileNotFoundError(f"{label} not found: {required_path}")
+
+safe_package = joblib.load(SAFE_MODEL_PATH)
+safe_model = safe_package["pipeline"]
+safe_features = safe_package["features"]
+
+accident_package = joblib.load(ACCIDENT_MODEL_PATH)
+accident_model = accident_package["pipeline"]
+accident_features = accident_package["features"]
+
+accident_history_df = load_accident_history(HISTORY_CSV_PATH)
+
+print("Integrated Safe Route AI Loaded")
+print("Safe-route features:", safe_features)
+print("Accident AI features:", accident_features)
+print("Historical accident points:", len(accident_history_df))
 
 
-# ============================================================
-# LOAD TRAINED SAFE ROUTE MODEL
-# ============================================================
+def safe_float(value, default=0.0):
+    try:
+        value = float(value)
+        return value if np.isfinite(value) else float(default)
+    except (TypeError, ValueError):
+        return float(default)
 
-if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError(
-        "safe_route_model.joblib not found."
+
+def safe_int(value, default=0):
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def build_safe_row(route_features, latitude=None, longitude=None):
+    f = route_features if isinstance(route_features, dict) else {}
+    return {
+        "city": f.get("city", "Unknown"),
+        "state": f.get("state", "Unknown"),
+        "latitude": safe_float(latitude if latitude is not None else f.get("latitude", 0), 0),
+        "longitude": safe_float(longitude if longitude is not None else f.get("longitude", 0), 0),
+        "hour": safe_int(f.get("hour", 12), 12),
+        "day_of_week": f.get("day_of_week", "Unknown"),
+        "is_weekend": safe_int(f.get("is_weekend", 0), 0),
+        "road_type": f.get("road_type", "Unknown"),
+        "lanes": safe_int(f.get("lanes", 2), 2),
+        "traffic_signal": f.get("traffic_signal", "Unknown"),
+        "weather": f.get("weather", "Clear"),
+        "visibility": f.get("visibility", "Good"),
+        "temperature": safe_float(f.get("temperature", 25), 25),
+        "traffic_density": f.get("traffic_density", "Low"),
+        "is_peak_hour": safe_int(f.get("is_peak_hour", 0), 0),
+        "festival": f.get("festival", "No"),
+    }
+
+
+def normalize_coordinates(route):
+    coords = route.get("coordinates", []) if isinstance(route, dict) else []
+    normalized = []
+    if isinstance(coords, list):
+        for point in coords:
+            if isinstance(point, (list, tuple)) and len(point) >= 2:
+                lon = safe_float(point[0], np.nan)
+                lat = safe_float(point[1], np.nan)
+            elif isinstance(point, dict):
+                lon = safe_float(point.get("lon", point.get("lng")), np.nan)
+                lat = safe_float(point.get("lat"), np.nan)
+            else:
+                continue
+            if np.isfinite(lon) and np.isfinite(lat):
+                normalized.append([lon, lat])
+    return normalized
+
+
+def sample_coords(coords, max_points=9):
+    if not coords:
+        return []
+    if len(coords) <= max_points:
+        return coords
+    idxs = np.linspace(0, len(coords) - 1, max_points, dtype=int).tolist()
+    return [coords[i] for i in idxs]
+
+
+def predict_safe_segments(route_features, coordinates):
+    sampled = sample_coords(coordinates, max_points=9)
+    rows = []
+    for lon, lat in sampled:
+        rows.append(build_safe_row(route_features, latitude=lat, longitude=lon))
+
+    # Fallback to the route-level row when geometry is unavailable.
+    if not rows:
+        rows = [build_safe_row(route_features)]
+
+    df = pd.DataFrame(rows, columns=safe_features)
+    predictions = np.clip(np.asarray(safe_model.predict(df), dtype=float), 0, 1)
+
+    average_score = float(np.mean(predictions))
+    max_score = float(np.max(predictions))
+    # Risk score reflects the route overall while retaining the highest-risk segment.
+    combined = float(np.clip(0.75 * average_score + 0.25 * max_score, 0, 1))
+
+    return combined, average_score, max_score, len(predictions)
+
+
+def condition_score(condition):
+    value = str(condition or "").strip().lower()
+    return {
+        "thunderstorm": 1.00,
+        "snow": 0.90,
+        "rain": 0.70,
+        "drizzle": 0.70,
+        "mist": 0.60,
+        "smoke": 0.60,
+        "haze": 0.60,
+        "fog": 0.60,
+        "dust": 0.60,
+        "sand": 0.60,
+        "ash": 0.60,
+        "squall": 0.60,
+        "tornado": 0.60,
+        "clouds": 0.20,
+    }.get(value, 0.0)
+
+
+def live_weather_risk(route):
+    points = route.get("weatherPoints", []) if isinstance(route, dict) else []
+    if not isinstance(points, list) or not points:
+        return 0.0, 0
+
+    scores = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        score = condition_score(point.get("condition"))
+        rain_1h = safe_float(point.get("rain1h", 0), 0)
+        if rain_1h > 0:
+            score = max(score, min(rain_1h / 10.0, 1.0))
+        visibility = str(point.get("visibility", "")).lower()
+        if visibility in {"low", "poor", "very low", "fog"}:
+            score = max(score, 0.60)
+        scores.append(score)
+
+    if not scores:
+        return 0.0, 0
+    # Weather risk is driven by the worst sampled condition, matching the route-weather logic.
+    return float(np.clip(max(np.mean(scores), max(scores)), 0, 1)), len(scores)
+
+
+def live_traffic_risk(route):
+    points = route.get("trafficPoints", []) if isinstance(route, dict) else []
+    scores = []
+    closures = 0
+
+    if isinstance(points, list):
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            congestion = safe_float(point.get("congestionPercent", 0), 0)
+            scores.append(np.clip(congestion / 100.0, 0, 1))
+            if bool(point.get("roadClosure", False)):
+                closures += 1
+
+    # Fallback to route-level summary if traffic points were not retained by the browser.
+    if not scores:
+        congestion = safe_float(route.get("trafficCongestionPercent", 0), 0)
+        scores = [np.clip(congestion / 100.0, 0, 1)]
+
+    risk = max(float(np.mean(scores)), float(np.max(scores))) if scores else 0.0
+    if closures > 0:
+        risk = 1.0
+    return float(np.clip(risk, 0, 1)), len(scores), closures
+
+
+def predict_accident_pattern(route_features):
+    supplied = route_features.get("accident_model_features") if isinstance(route_features, dict) else None
+    if not isinstance(supplied, dict):
+        return None
+
+    missing = [f for f in accident_features if f not in supplied]
+    if missing:
+        return None
+
+    row = {feature: supplied.get(feature) for feature in accident_features}
+    df = pd.DataFrame([row], columns=accident_features)
+    if "Number_of_vehicles_involved" in df.columns:
+        df["Number_of_vehicles_involved"] = pd.to_numeric(
+            df["Number_of_vehicles_involved"], errors="coerce"
+        )
+
+    probabilities = accident_model.predict_proba(df)[0]
+    classes = list(accident_model.classes_)
+    probability_map = {str(cls): float(prob) for cls, prob in zip(classes, probabilities)}
+    numeric = (
+        0.10 * probability_map.get("Low", 0.0)
+        + 0.50 * probability_map.get("Medium", 0.0)
+        + 0.90 * probability_map.get("High", 0.0)
     )
+    label = max(probability_map, key=probability_map.get)
+    return {
+        "patternRiskScore": round(float(numeric), 4),
+        "patternRiskLevel": label,
+        "classProbabilities": {k: round(v, 4) for k, v in probability_map.items()},
+    }
 
-
-package = joblib.load(MODEL_PATH)
-
-# Trained pipeline
-model = package["pipeline"]
-
-# Exact feature order used during training
-features = package["features"]
-
-
-print("Safe Route AI Model Loaded")
-print("Features:", features)
-
-
-# ============================================================
-# HEALTH CHECK
-# ============================================================
 
 @app.route("/", methods=["GET"])
 def home():
-
     return jsonify({
-        "message": "Safe Route AI API is running",
-        "status": "success"
+        "message": "Integrated Safe Route AI API is running",
+        "status": "success",
+        "historicalAccidentPoints": int(len(accident_history_df)),
     })
 
 
-# ============================================================
-# SAFE ROUTE PREDICTION
-# ============================================================
-
-@app.route(
-    "/predict-safe-route",
-    methods=["POST"]
-)
+@app.route("/predict-safe-route", methods=["POST"])
 def predict_safe_route():
-
     try:
-
         data = request.get_json(silent=True)
-
         if not data:
-            return jsonify({
-                "error": "JSON input is required"
-            }), 400
-
+            return jsonify({"error": "JSON input is required"}), 400
 
         routes = data.get("routes")
+        if not isinstance(routes, list) or not routes:
+            return jsonify({"error": "routes must be a non-empty array"}), 400
 
-
-        if not isinstance(routes, list):
-            return jsonify({
-                "error": "routes must be an array"
-            }), 400
-
-
-        if len(routes) == 0:
-            return jsonify({
-                "error": "No routes provided"
-            }), 400
-
-
-        predictions = []
-
-
-        # ====================================================
-        # PROCESS EVERY ROUTE
-        # ====================================================
+        radius_km = safe_float(data.get("accidentRadiusKm", 1.0), 1.0)
+        radius_km = float(np.clip(radius_km, 0.1, 5.0))
+        results = []
 
         for index, route in enumerate(routes):
-
             if not isinstance(route, dict):
                 continue
 
-
-            route_id = route.get(
-                "id",
-                f"route-{index + 1}"
-            )
-
-            route_name = route.get(
-                "name",
-                f"Route {chr(65 + index)}"
-            )
-
-
-            route_features = route.get(
-                "features",
-                {}
-            )
-
-
+            route_id = route.get("id", f"route-{index + 1}")
+            route_name = route.get("name", f"Route {index + 1}")
+            route_features = route.get("features", {})
             if not isinstance(route_features, dict):
                 route_features = {}
 
-
-            # ------------------------------------------------
-            # REQUIRED MODEL FEATURES
-            # ------------------------------------------------
-
-            input_data = {
-
-                "city":
-                    route_features.get(
-                        "city",
-                        "Unknown"
-                    ),
-
-                "state":
-                    route_features.get(
-                        "state",
-                        "Unknown"
-                    ),
-
-                "latitude":
-                    float(
-                        route_features.get(
-                            "latitude",
-                            0
-                        )
-                    ),
-
-                "longitude":
-                    float(
-                        route_features.get(
-                            "longitude",
-                            0
-                        )
-                    ),
-
-                "hour":
-                    int(
-                        route_features.get(
-                            "hour",
-                            12
-                        )
-                    ),
-
-                "day_of_week":
-                    route_features.get(
-                        "day_of_week",
-                        "Unknown"
-                    ),
-
-                "is_weekend":
-                    int(
-                        route_features.get(
-                            "is_weekend",
-                            0
-                        )
-                    ),
-
-                "road_type":
-                    route_features.get(
-                        "road_type",
-                        "Unknown"
-                    ),
-
-                "lanes":
-                    int(
-                        route_features.get(
-                            "lanes",
-                            2
-                        )
-                    ),
-
-                "traffic_signal":
-                    route_features.get(
-                        "traffic_signal",
-                        "Unknown"
-                    ),
-
-                "weather":
-                    route_features.get(
-                        "weather",
-                        "Clear"
-                    ),
-
-                "visibility":
-                    route_features.get(
-                        "visibility",
-                        "Good"
-                    ),
-
-                "temperature":
-                    float(
-                        route_features.get(
-                            "temperature",
-                            25
-                        )
-                    ),
-
-                "traffic_density":
-                    route_features.get(
-                        "traffic_density",
-                        "Low"
-                    ),
-
-                "is_peak_hour":
-                    int(
-                        route_features.get(
-                            "is_peak_hour",
-                            0
-                        )
-                    ),
-
-                "festival":
-                    route_features.get(
-                        "festival",
-                        "No"
-                    )
-            }
-
-
-            # ------------------------------------------------
-            # KEEP EXACT MODEL FEATURE ORDER
-            # ------------------------------------------------
-
-            input_df = pd.DataFrame(
-                [input_data],
-                columns=features
+            coordinates = normalize_coordinates(route)
+            ai_score, ai_average, ai_max, segment_count = predict_safe_segments(
+                route_features,
+                coordinates,
             )
 
-
-            # ------------------------------------------------
-            # AI PREDICTION
-            # ------------------------------------------------
-
-            prediction = float(
-                model.predict(input_df)[0]
+            history = route_history_risk(
+                coordinates,
+                accident_history_df,
+                radius_km=radius_km,
             )
 
+            weather_risk, weather_count = live_weather_risk(route)
+            traffic_risk, traffic_count, closure_count = live_traffic_risk(route)
+            pattern = predict_accident_pattern(route_features)
 
-            # Keep prediction between 0 and 1
-            prediction = float(
-                np.clip(
-                    prediction,
-                    0,
-                    1
+            history_risk = float(history["historyRiskScore"])
+
+            # Integration score: trained AI + defensible historical proximity +
+            # live weather + live traffic. No model retraining or fabricated road data.
+            if pattern is None:
+                final_score = (
+                    0.50 * ai_score
+                    + 0.20 * history_risk
+                    + 0.15 * weather_risk
+                    + 0.15 * traffic_risk
                 )
-            )
-
-
-            # Convert to percentage
-            risk_percentage = prediction * 100
-
-
-            # ------------------------------------------------
-            # RISK LEVEL
-            # ------------------------------------------------
-
-            if prediction < 0.33:
-
-                risk_level = "LOW"
-
-            elif prediction < 0.66:
-
-                risk_level = "MEDIUM"
-
             else:
+                final_score = (
+                    0.40 * ai_score
+                    + 0.15 * pattern["patternRiskScore"]
+                    + 0.20 * history_risk
+                    + 0.125 * weather_risk
+                    + 0.125 * traffic_risk
+                )
 
-                risk_level = "HIGH"
+            final_score = float(np.clip(final_score, 0, 1))
+            if final_score < 0.33:
+                level = "LOW"
+            elif final_score < 0.66:
+                level = "MEDIUM"
+            else:
+                level = "HIGH"
 
-
-            # ------------------------------------------------
-            # STORE RESULT
-            # ------------------------------------------------
-
-            predictions.append({
-
-                "id":
-                    route_id,
-
-                "name":
-                    route_name,
-
-                "distanceKm":
-                    route.get(
-                        "distanceKm",
-                        0
-                    ),
-
-                "durationMin":
-                    route.get(
-                        "durationMin",
-                        0
-                    ),
-
-                "riskScore":
-                    round(
-                        prediction,
-                        4
-                    ),
-
-                "riskPercentage":
-                    round(
-                        risk_percentage,
-                        2
-                    ),
-
-                "riskLevel":
-                    risk_level
+            results.append({
+                "id": route_id,
+                "name": route_name,
+                "distanceKm": route.get("distanceKm", 0),
+                "durationMin": route.get("durationMin", 0),
+                "aiRiskScore": round(ai_score, 4),
+                "aiRiskPercentage": round(ai_score * 100, 2),
+                "aiAverageSegmentRisk": round(ai_average, 4),
+                "aiMaximumSegmentRisk": round(ai_max, 4),
+                "aiSegmentCount": int(segment_count),
+                "historicalAccidentRiskScore": history_risk,
+                "historicalAccidentRiskPercentage": round(history_risk * 100, 2),
+                "nearbyAccidentCount": history["nearbyAccidentCount"],
+                "closestAccidentDistanceKm": history["closestAccidentDistanceKm"],
+                "historicalRiskLevel": history["historicalRiskLevel"],
+                "liveWeatherRiskScore": round(weather_risk, 4),
+                "liveWeatherRiskPercentage": round(weather_risk * 100, 2),
+                "liveWeatherPointCount": int(weather_count),
+                "liveTrafficRiskScore": round(traffic_risk, 4),
+                "liveTrafficRiskPercentage": round(traffic_risk * 100, 2),
+                "liveTrafficPointCount": int(traffic_count),
+                "roadClosureCount": int(closure_count),
+                "accidentPatternAI": pattern,
+                "finalRiskScore": round(final_score, 4),
+                "finalRiskPercentage": round(final_score * 100, 2),
+                "finalRiskLevel": level,
             })
 
+        if not results:
+            return jsonify({"error": "No valid routes were provided"}), 400
 
-        # ====================================================
-        # CHECK PREDICTIONS
-        # ====================================================
-
-        if len(predictions) == 0:
-
-            return jsonify({
-                "error": "No valid routes were provided"
-            }), 400
-
-
-        # ====================================================
-        # FIND LOWEST AI RISK
-        # ====================================================
-
-        safest_route = min(
-            predictions,
-            key=lambda x: x["riskScore"]
-        )
-
-
-        # ====================================================
-        # FINAL RESPONSE
-        # ====================================================
+        safest = min(results, key=lambda x: x["finalRiskScore"])
 
         return jsonify({
-
-            "status":
-                "success",
-
-            "routes":
-                predictions,
-
-            "recommendedRouteId":
-                safest_route["id"],
-
-            "recommendedRouteName":
-                safest_route["name"],
-
-            "message":
-                "AI route risk prediction completed"
-
+            "status": "success",
+            "accidentHistory": {
+                "points": int(len(accident_history_df)),
+                "coverageNote": "Media-reported fatal crashes; absence of a nearby point does not prove a road is safe.",
+                "searchRadiusKm": radius_km,
+            },
+            "routes": results,
+            "recommendedRouteId": safest["id"],
+            "recommendedRouteName": safest["name"],
+            "message": "All supplied routes evaluated using trained Safe Route AI, historical accident proximity, live weather and live traffic",
         })
 
-
     except Exception as error:
+        print("Integrated Safe Route AI Error:", error)
+        return jsonify({"status": "error", "error": str(error)}), 500
 
-        print(
-            "Safe Route AI Error:",
-            error
-        )
-
-        return jsonify({
-
-            "status":
-                "error",
-
-            "error":
-                str(error)
-
-        }), 500
-
-
-# ============================================================
-# START SERVER
-# ============================================================
 
 if __name__ == "__main__":
-
-    print(
-        "Safe Route AI API running on:"
-    )
-
-    print(
-        "http://127.0.0.1:5001"
-    )
-
-    app.run(
-        host="127.0.0.1",
-        port=5001,
-        debug=True
-    )
+    print("Integrated Safe Route AI API running on http://127.0.0.1:5001")
+    app.run(host="127.0.0.1", port=5001, debug=True)
